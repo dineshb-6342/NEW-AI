@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Teacher Dashboard - Anonymous Doubt System</title>
+  <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+
+    body {
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+      min-height: 100vh;
+      color: #fff;
+      overflow-x: hidden;
+    }
+
+    /* Glassmorphism Container */
+    .glass-container {
+      background: rgba(255, 255, 255, 0.1);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 20px;
+      box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+    }
+
+    /* Header */
+    .header {
+      padding: 20px 40px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: rgba(0, 0, 0, 0.3);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .header h1 {
+      font-size: 28px;
+      font-weight: 600;
+      background: linear-gradient(90deg, #00d9ff, #00ff88);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .room-info {
+      display: flex;
+      align-items: center;
+      gap: 15px;
+    }
+
+    .room-id {
+      background: rgba(0, 217, 255, 0.2);
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 14px;
+      border: 1px solid rgba(0, 217, 255, 0.4);
+    }
+
+    .test-btn {
+      background: linear-gradient(135deg, #ffa500, #ff8c00);
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      margin-left: 10px;
+      transition: all 0.3s ease;
+    }
+
+    .test-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(255, 165, 0, 0.4);
+    }
+
+    .connection-info {
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.6);
+      margin-top: 5px;
+    }
+
+    /* Main Layout */
+    .main-container {
+      display: flex;
+      height: calc(100vh - 80px);
+      padding: 20px;
+      gap: 20px;
+    }
+
+    /* Smartboard Area */
+    .smartboard {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 30px;
+    }
+
+    .smartboard h2 {
+      font-size: 22px;
+      margin-bottom: 20px;
+      color: rgba(255, 255, 255, 0.8);
+    }
+
+    .board-placeholder {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 2px dashed rgba(255, 255, 255, 0.2);
+      border-radius: 15px;
+      color: rgba(255, 255, 255, 0.5);
+      font-size: 18px;
+    }
+
+    /* QR Code Section */
+    .qr-section {
+      margin-top: 20px;
+      padding: 20px;
+      text-align: center;
+    }
+
+    .qr-section h3 {
+      margin-bottom: 15px;
+      font-size: 16px;
+      color: rgba(255, 255, 255, 0.8);
+    }
+
+    #qrcode {
+      display: inline-block;
+      padding: 15px;
+      background: rgba(255, 255, 255, 0.95);
+      border-radius: 10px;
+    }
+
+    #qrcode canvas {
+      display: block;
+    }
+
+    .qr-url {
+      margin-top: 10px;
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.6);
+      word-break: break-all;
+    }
+
+    /* Sidebar - Live Doubts */
+    .sidebar {
+      width: 400px;
+      display: flex;
+      flex-direction: column;
+      padding: 20px;
+    }
+
+    .sidebar-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+
+    .sidebar-header h2 {
+      font-size: 20px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .live-indicator {
+      width: 10px;
+      height: 10px;
+      background: #00ff88;
+      border-radius: 50%;
+      animation: pulse 1.5s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .clear-btn {
+      background: linear-gradient(135deg, #ff6b6b, #ee5a5a);
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      transition: all 0.3s ease;
+    }
+
+    .clear-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 5px 15px rgba(255, 107, 107, 0.4);
+    }
+
+    /* Doubts List */
+    .doubts-list {
+      flex: 1;
+      overflow-y: auto;
+      padding-right: 5px;
+    }
+
+    .doubts-list::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    .doubts-list::-webkit-scrollbar-track {
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 3px;
+    }
+
+    .doubts-list::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.3);
+      border-radius: 3px;
+    }
+
+    .doubt-item {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 12px;
+      padding: 15px;
+      margin-bottom: 12px;
+      animation: fadeIn 0.5s ease;
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(-10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .doubt-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .student-name {
+      font-weight: 600;
+      color: #00d9ff;
+      font-size: 14px;
+    }
+
+    .timestamp {
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.5);
+    }
+
+    .doubt-text {
+      color: rgba(255, 255, 255, 0.9);
+      font-size: 15px;
+      line-height: 1.5;
+    }
+
+    .no-doubts {
+      text-align: center;
+      padding: 40px;
+      color: rgba(255, 255, 255, 0.4);
+      font-size: 16px;
+    }
+
+    /* Responsive */
+    @media (max-width: 900px) {
+      .main-container {
+        flex-direction: column;
+      }
+      
+      .sidebar {
+        width: 100%;
+        max-height: 50vh;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>🎓 AI Smartboard - Teacher Dashboard</h1>
+    <div class="room-info">
+      <span class="room-id">Room: <strong id="roomId">123</strong></span>
+      <button class="test-btn" onclick="testConnection()">Test Connection</button>
+    </div>
+  </div>
+
+  <div class="main-container">
+    <div class="smartboard glass-container">
+      <h2>📺 Main Board</h2>
+      <div class="board-placeholder">
+        Your main teaching content appears here
+      </div>
+      
+      <div class="qr-section glass-container">
+        <h3>📱 Scan to Join - Student QR Code</h3>
+        <div id="qrcode"></div>
+        <p class="qr-url" id="joinUrl"></p>
+      </div>
+    </div>
+
+    <div class="sidebar glass-container">
+      <div class="sidebar-header">
+        <h2>
+          <span class="live-indicator"></span>
+          Live Doubts
+        </h2>
+        <button class="clear-btn" onclick="clearAllDoubts()">Clear All</button>
+      </div>
+      <div class="doubts-list" id="doubtsList">
+        <div class="no-doubts">No doubts yet. Students can submit questions once they join!</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Get room ID from URL or use default
+    const urlParams = new URLSearchParams(window.location.search);
+    const roomId = urlParams.get('roomId') || 'class123';
+    document.getElementById('roomId').textContent = roomId;
+
+    // Use dynamic server URL from the current page
+    const serverUrl = window.location.origin;
+    console.log('Connecting to:', serverUrl);
+
+    // Initialize Socket.io with dynamic URL
+    const socket = io(serverUrl);
+
+    // Join room as teacher
+    socket.emit('join_room', { roomId, role: 'teacher' });
+
+    // Generate QR Code - uses the dynamic IP so mobile can connect
+    const joinUrl = `${window.location.origin}/join/${roomId}`;
+    new QRCode(document.getElementById('qrcode'), {
+      text: joinUrl,
+      width: 150,
+      height: 150,
+      colorDark: '#000000',
+      colorLight: '#ffffff',
+      correctLevel: QRCode.CorrectLevel.H
+    });
+    document.getElementById('joinUrl').textContent = joinUrl;
+
+    // Load existing doubts when teacher joins
+    socket.on('load_doubts', (doubts) => {
+      const doubtsList = document.getElementById('doubtsList');
+      doubtsList.innerHTML = '';
+      
+      if (doubts && doubts.length > 0) {
+        doubts.forEach(doubt => addDoubtToList(doubt));
+      } else {
+        doubtsList.innerHTML = '<div class="no-doubts">No doubts yet. Students can submit questions once they join!</div>';
+      }
+    });
+
+    // Receive new doubt
+    socket.on('receive_doubt', (doubt) => {
+      addDoubtToList(doubt);
+    });
+
+    // Add doubt to the list with animation
+    function addDoubtToList(doubt) {
+      const doubtsList = document.getElementById('doubtsList');
+      
+      // Remove "no doubts" message if present
+      const noDoubtsMsg = doubtsList.querySelector('.no-doubts');
+      if (noDoubtsMsg) {
+        noDoubtsMsg.remove();
+      }
+
+      const doubtItem = document.createElement('div');
+      doubtItem.className = 'doubt-item';
+      doubtItem.innerHTML = `
+        <div class="doubt-header">
+          <span class="student-name">${doubt.studentName}</span>
+          <span class="timestamp">${doubt.timestamp}</span>
+        </div>
+        <p class="doubt-text">${escapeHtml(doubt.doubt)}</p>
+      `;
+
+      // Insert at the beginning
+      doubtsList.insertBefore(doubtItem, doubtsList.firstChild);
+    }
+
+    // Clear all doubts
+    function clearAllDoubts() {
+      socket.emit('clear_doubts', { roomId });
+    }
+
+    // Handle doubts cleared
+    socket.on('doubts_cleared', () => {
+      const doubtsList = document.getElementById('doubtsList');
+      doubtsList.innerHTML = '<div class="no-doubts">No doubts yet. Students can submit questions once they join!</div>';
+    });
+
+    // Escape HTML to prevent XSS
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // Connection status
+    socket.on('connect', () => {
+      console.log('Socket Connected');
+      alert('✅ Socket Connected Successfully!');
+    });
+
+    socket.on('disconnect', () => {
+      console.log('Disconnected from server');
+    });
+
+    // Connection error handling
+    socket.on('connect_error', (error) => {
+      console.error('Connection Error:', error);
+      alert('❌ Connection Failed! Check if server is running.\n\nError: ' + error.message);
+    });
+
+    // Test Connection button function
+    function testConnection() {
+      if (socket.connected) {
+        console.log('Socket Connected');
+        alert('✅ Socket is Connected!\n\nRoom: ' + roomId + '\nSocket ID: ' + socket.id);
+      } else {
+        console.log('Socket Not Connected');
+        alert('❌ Socket is NOT Connected!\n\nPlease check if the server is running.');
+      }
+    }
+  </script>
+</body>
+</html>
+
