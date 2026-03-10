@@ -329,7 +329,7 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ showDoubts = false, setShowDoub
 
   /* ---------- media helpers (Local + Google API) ---------- */
 
-  const fetchImagesFromSentence = async (sentence: string) => {
+  const fetchImagesFromSentence = async (sentence: string, forceExternal: boolean = false) => {
     const cleaned = sentence
       .toLowerCase()
       .replace(/[^\w\s]/g, "")
@@ -344,7 +344,7 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ showDoubts = false, setShowDoub
     const searchQuery = isSearchRequest ? cleaned.replace(/^search for\s*/, "").replace(/^search\s*/, "") : cleaned;
 
     // If it's a search request, skip local files and go directly to external API
-    if (isSearchRequest) {
+    if (isSearchRequest || forceExternal) {
       console.log(`🌐 Search request detected, fetching from external API...`);
       await fetchFromExternalImageAPI(searchQuery);
       return;
@@ -364,7 +364,72 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ showDoubts = false, setShowDoub
     await fetchFromExternalImageAPI(cleaned);
   };
 
-  // Helper function to fetch from external API
+  // Videos - Local files first, then Google API when requested
+  const fetchVideosFromSentence = async (sentence: string, forceExternal: boolean = false) => {
+    const cleaned = sentence
+      .toLowerCase()
+      .replace(/[^\w\s]/g, "")
+      .trim();
+
+    if (!cleaned) return;
+
+    console.log(`🎬 Fetching video for: "${cleaned}"`);
+
+    // Check if user explicitly wants to search online (skip local files)
+    const isSearchRequest = cleaned.startsWith("search for ") || cleaned.startsWith("search ");
+    const searchQuery = isSearchRequest ? cleaned.replace(/^search for\s*/, "").replace(/^search\s*/, "") : cleaned;
+
+    // If it's a search request or forceExternal, go directly to external API
+    if (isSearchRequest || forceExternal) {
+      console.log(`🌐 Search request detected, fetching from Google API...`);
+      await fetchFromExternalVideoAPI(searchQuery);
+      return;
+    }
+
+    // First, check if there's a matching local video
+    const localVideoUrl = findLocalMedia(cleaned, localVideos);
+    if (localVideoUrl) {
+      console.log(`✅ Found local video:`, localVideoUrl);
+      if (!videos.includes(localVideoUrl)) {
+        setVideos(prev => [...prev, localVideoUrl]);
+      }
+      return;
+    }
+
+    // Fallback to external API for videos
+    await fetchFromExternalVideoAPI(cleaned);
+  };
+
+  // Helper function to process user input and determine what to fetch
+  const processMediaRequest = (input: string) => {
+    const lowerInput = input.toLowerCase();
+    
+    // Check for specific media type requests
+    const isImageRequest = lowerInput.includes(" image");
+    const isVideoRequest = lowerInput.includes(" video");
+    
+    // Remove the media type keywords to get the actual topic
+    let topic = lowerInput
+      .replace(/ image$/, "")
+      .replace(/ video$/, "")
+      .trim();
+    
+    if (isImageRequest) {
+      // Only fetch image
+      console.log("📷 Image request detected");
+      fetchImagesFromSentence(topic, true);
+    } else if (isVideoRequest) {
+      // Only fetch video - but only from local files (no external)
+      console.log("🎬 Video request - checking local files only");
+      fetchVideosFromSentence(topic);
+    } else {
+      // Fetch both (default behavior)
+      fetchImagesFromSentence(topic);
+      fetchVideosFromSentence(topic);
+    }
+  };
+
+  // Helper function to fetch from external API for images
   const fetchFromExternalImageAPI = async (query: string) => {
     try {
       const response = await fetch(`/api/search-images?query=${encodeURIComponent(query)}`);
@@ -396,51 +461,18 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ showDoubts = false, setShowDoub
 
       if (data.success && data.videos && data.videos.length > 0) {
         const videoUrl = data.videos[0].url;
+        console.log(`✅ Video URL from API:`, videoUrl);
+        
         if (!videos.includes(videoUrl)) {
           setVideos(prev => [...prev, videoUrl]);
-          console.log(`✅ Displaying video from external source:`, videoUrl);
+          console.log(`✅ Displaying video from Google:`, videoUrl);
         }
       } else {
-        console.log(`❌ No videos found for: ${query}`);
+        console.log(`❌ No videos found for: ${query}. Message:`, data.message);
       }
     } catch (error) {
       console.error('🔴 Error fetching videos:', error);
     }
-  };
-
-  const fetchVideosFromSentence = async (sentence: string) => {
-    const cleaned = sentence
-      .toLowerCase()
-      .replace(/[^\w\s]/g, "")
-      .trim();
-
-    if (!cleaned) return;
-
-    console.log(`🎬 Fetching video for: "${cleaned}"`);
-
-    // Check if user explicitly wants to search online (skip local files)
-    const isSearchRequest = cleaned.startsWith("search for ") || cleaned.startsWith("search ");
-    const searchQuery = isSearchRequest ? cleaned.replace(/^search for\s*/, "").replace(/^search\s*/, "") : cleaned;
-
-    // If it's a search request, skip local files and go directly to external API
-    if (isSearchRequest) {
-      console.log(`🌐 Search request detected, fetching from external API...`);
-      await fetchFromExternalVideoAPI(searchQuery);
-      return;
-    }
-
-    // First, check if there's a matching local video
-    const localVideoUrl = findLocalMedia(cleaned, localVideos);
-    if (localVideoUrl) {
-      console.log(`✅ Found local video:`, localVideoUrl);
-      if (!videos.includes(localVideoUrl)) {
-        setVideos(prev => [...prev, localVideoUrl]);
-      }
-      return;
-    }
-
-    // Fallback to external API for videos
-    await fetchFromExternalVideoAPI(cleaned);
   };
 
   /* ---------- TEXT INPUT FUNCTION (NEW) ---------- */
@@ -453,14 +485,12 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ showDoubts = false, setShowDoub
 
     setText(prev => prev + "\n" + sentence);
 
-    fetchImagesFromSentence(sentence);
-    fetchVideosFromSentence(sentence);
+    processMediaRequest(sentence);
 
     setManualInput("");
   };
 
   const handleKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
-
     if (e.key === "Enter") {
       handleManualSubmit();
     }
@@ -507,12 +537,11 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ showDoubts = false, setShowDoub
           prev + "\n" + transcript.trim()
         );
 
-        fetchImagesFromSentence(transcript);
-        fetchVideosFromSentence(transcript);
+        // Use processMediaRequest to handle specific media type requests
+        processMediaRequest(transcript.trim());
       };
 
       recognition.onend = () => {
-
         if (isSpeaking) recognition.start();
       };
 
@@ -687,13 +716,45 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ showDoubts = false, setShowDoub
         ))}
 
         {videos.map((video, i) => (
-          <video
-            key={i}
-            src={video}
-            className="overlay-video"
-            controls
-            autoPlay
-          />
+          video.includes('youtube.com/embed') ? (
+            <div key={i} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}>
+              <iframe
+                src={video}
+                className="overlay-video"
+                title="Video"
+                frameBorder="0"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                allowFullScreen
+                style={{ width: '100%', height: '100%' }}
+              />
+              <a 
+                href={video.replace('embed/', 'watch?v=')} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                style={{
+                  position: 'absolute',
+                  bottom: '10px',
+                  right: '10px',
+                  background: '#ff0000',
+                  color: 'white',
+                  padding: '5px 10px',
+                  borderRadius: '5px',
+                  textDecoration: 'none',
+                  fontSize: '12px'
+                }}
+              >
+                Open in YouTube ↗
+              </a>
+            </div>
+          ) : (
+            <video
+              key={i}
+              src={video}
+              className="overlay-video"
+              controls
+              autoPlay
+            />
+          )
         ))}
 
       </div>

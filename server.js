@@ -24,9 +24,12 @@ app.use((req, res, next) => {
   next();
 });
 
-// Google Custom Search API Configuration (not working - needs API enabled)
-// Using Wikipedia API as free alternative for educational images
-const WIKIPEDIA_API_URL = 'https://en.wikipedia.org/api/rest_v1/page/summary';
+// Google Custom Search API Configuration
+const GOOGLE_IMAGE_API_KEY = 'AIzaSyB7ZP7Vt6L1ADF1i2Bw8tB0QWbxaeQqAqY';
+const GOOGLE_IMAGE_SEARCH_ENGINE = '9437e7704532840b4';
+
+const GOOGLE_VIDEO_API_KEY = 'AIzaSyCILFIVb4YyhwszFZ1U7X3DZbvjMVDehks';
+const GOOGLE_VIDEO_SEARCH_ENGINE = '9437e7704532840b4';
 
 // Helper function to make HTTPS requests with proper headers
 const httpsGet = (url, headers = {}) => {
@@ -52,7 +55,7 @@ const httpsGet = (url, headers = {}) => {
   });
 };
 
-// API endpoint to search images from Wikipedia
+// API endpoint to search images using Google Custom Search API
 app.get('/api/search-images', async (req, res) => {
   let query = req.query.q || req.query.query;
   
@@ -60,61 +63,45 @@ app.get('/api/search-images', async (req, res) => {
     return res.status(400).json({ error: 'Query parameter is required' });
   }
 
-  console.log(`🔍 Searching Wikipedia for: ${query}`);
+  console.log(`🔍 Searching Google Images for: ${query}`);
 
   try {
-    // First, get the Wikipedia page summary
-    const wikiUrl = `${WIKIPEDIA_API_URL}/${encodeURIComponent(query)}`;
-    const wikiData = await httpsGet(wikiUrl);
+    // Use Google Custom Search API for images
+    const googleUrl = `https://www.googleapis.com/customsearch/v1?key=${GOOGLE_IMAGE_API_KEY}&cx=${GOOGLE_IMAGE_SEARCH_ENGINE}&q=${encodeURIComponent(query)}&searchType=image`;
+    const googleData = await httpsGet(googleUrl);
     
-    console.log('📊 Wikipedia Response:', wikiData);
+    console.log('📊 Google Image Search Response:', googleData);
     
-    if (wikiData && wikiData.type !== 'disambiguation' && wikiData.thumbnail) {
-      // Return the thumbnail image from Wikipedia
-      const imageUrl = wikiData.thumbnail.source;
-      console.log(`✅ Found Wikipedia image for "${query}":`, imageUrl);
+    if (googleData && googleData.items && googleData.items.length > 0) {
+      // Return the first few image results
+      const images = googleData.items.slice(0, 5).map(item => ({
+        url: item.link,
+        title: item.title,
+        thumbnail: item.image?.thumbnailLink || item.link,
+        description: item.snippet
+      }));
+      
+      console.log(`✅ Found ${images.length} Google images for "${query}"`);
       res.json({ 
         success: true, 
-        images: [{
-          url: imageUrl,
-          title: wikiData.title,
-          thumbnail: imageUrl,
-          description: wikiData.extract
-        }],
-        source: 'Wikipedia'
+        images: images,
+        source: 'Google Images'
       });
-    } else if (wikiData && wikiData.type === 'disambiguation') {
-      // Try to get the first real page from related topics
-      if (wikiData.descriptions && wikiData.descriptions.summary) {
-        // Try searching for images using a different approach
-        res.json({ 
-          success: false, 
-          images: [], 
-          message: `Multiple results found for "${query}". Try being more specific.`,
-          suggestions: wikiData.descriptions
-        });
-      } else {
-        res.json({ 
-          success: false, 
-          images: [], 
-          message: `No specific page found for "${query}". Try a more specific term.`
-        });
-      }
     } else {
-      console.log(`❌ No Wikipedia article found for: ${query}`);
+      console.log(`❌ No Google images found for: ${query}`);
       res.json({ 
         success: false, 
         images: [], 
-        message: `No Wikipedia article found for "${query}". Try a different term.`
+        message: `No images found for "${query}". Try a different term.`
       });
     }
   } catch (error) {
-    console.error('🔴 Wikipedia API Error:', error.message);
+    console.error('🔴 Google Image API Error:', error.message);
     res.status(500).json({ error: 'Failed to search images', details: error.message });
   }
 });
 
-// API endpoint to search educational videos (YouTube)
+// API endpoint to search videos using Google Custom Search API
 app.get('/api/search-videos', async (req, res) => {
   const query = req.query.q || req.query.query;
   
@@ -122,34 +109,60 @@ app.get('/api/search-videos', async (req, res) => {
     return res.status(400).json({ error: 'Query parameter is required' });
   }
 
-  console.log(`🎬 Searching for educational videos: ${query}`);
+  console.log(`🎬 Searching Google Videos for: ${query}`);
 
   try {
-    // Use Wikipedia to find related video links
-    const wikiUrl = `${WIKIPEDIA_API_URL}/${encodeURIComponent(query)}`;
-    const wikiData = await httpsGet(wikiUrl);
+    // Use Google Custom Search API for videos
+    const googleUrl = `https://www.googleapis.com/customsearch/v1?key=${GOOGLE_VIDEO_API_KEY}&cx=${GOOGLE_VIDEO_SEARCH_ENGINE}&q=${encodeURIComponent(query)}&searchType=video`;
+    const googleData = await httpsGet(googleUrl);
     
-    if (wikiData && wikiData.content_urls) {
-      // Return Wikipedia mobile URL as a reference
+    console.log('📊 Google Video Search Response:', googleData);
+    
+    if (googleData && googleData.items && googleData.items.length > 0) {
+      // Process video results and convert YouTube links to embed URLs
+      const videos = googleData.items.slice(0, 5).map(item => {
+        let videoUrl = item.link;
+        
+        // Convert YouTube watch URLs to embed URLs
+        if (videoUrl.includes('youtube.com/watch')) {
+          const videoId = new URL(videoUrl).searchParams.get('v');
+          if (videoId) {
+            videoUrl = `https://www.youtube.com/embed/${videoId}`;
+          }
+        }
+        // Convert youtu.be short URLs to embed URLs
+        else if (videoUrl.includes('youtu.be/')) {
+          const videoId = videoUrl.split('youtu.be/')[1]?.split('?')[0];
+          if (videoId) {
+            videoUrl = `https://www.youtube.com/embed/${videoId}`;
+          }
+        }
+        
+        return {
+          url: videoUrl,
+          title: item.title,
+          thumbnail: item.image?.thumbnailLink || '',
+          description: item.snippet,
+          isYouTube: videoUrl.includes('youtube.com/embed')
+        };
+      });
+      
+      console.log(`✅ Found ${videos.length} Google videos for "${query}"`);
       res.json({ 
         success: true, 
-        videos: [{
-          url: wikiData.content_urls.mobile.page,
-          title: wikiData.title,
-          thumbnail: wikiData.thumbnail?.source || '',
-          source: 'Wikipedia'
-        }],
-        source: 'Wikipedia'
+        videos: videos,
+        source: 'Google Videos'
       });
     } else {
+      console.log(`❌ No Google videos found for: ${query}`);
       res.json({ 
         success: false, 
         videos: [], 
-        message: `No results found for "${query}"`
+        message: `No videos found for "${query}". Try a different term.`
       });
     }
   } catch (error) {
-    console.error('🔴 Video Search Error:', error.message);
+    console.error('🔴 Google Video API Error:', error.message);
     res.status(500).json({ error: 'Failed to search videos', details: error.message });
   }
 });
@@ -182,6 +195,23 @@ app.get('/api/server-info', (req, res) => {
     teacherUrl: `http://${LOCAL_IP}:${PORT}/teacher`,
     joinUrl: (roomId) => `http://${LOCAL_IP}:${PORT}/join/${roomId}`
   });
+});
+
+// Test endpoint to verify video API
+app.get('/api/test-video', async (req, res) => {
+  const query = req.query.q || 'apple';
+  const googleUrl = `https://www.googleapis.com/customsearch/v1?key=${GOOGLE_VIDEO_API_KEY}&cx=${GOOGLE_VIDEO_SEARCH_ENGINE}&q=${encodeURIComponent(query)}&searchType=video`;
+  
+  try {
+    const googleData = await httpsGet(googleUrl);
+    res.json({ 
+      query,
+      url: googleUrl,
+      data: googleData 
+    });
+  } catch (error) {
+    res.json({ error: error.message });
+  }
 });
 
 // Serve static files from public directory
